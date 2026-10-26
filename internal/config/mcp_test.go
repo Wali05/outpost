@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hookdeck/outpost/internal/config"
+	"github.com/hookdeck/outpost/internal/mcpevents"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -26,6 +27,10 @@ func defaultMCPConfig() config.MCPConfig {
 	return config.MCPConfig{
 		RetrySchedule:          []int{30, 120, 600},
 		VerificationTTLSeconds: 86400,
+
+		SubscriptionTTLDefaultSeconds: 3600,
+		SubscriptionTTLMinSeconds:     300,
+		SubscriptionTTLMaxSeconds:     86400,
 	}
 }
 
@@ -74,6 +79,10 @@ func TestMCPConfig_EnvAndYAML(t *testing.T) {
 		AllowInsecureCallbacks: true,
 		RetrySchedule:          []int{5, 10},
 		VerificationTTLSeconds: 5400,
+
+		SubscriptionTTLDefaultSeconds: 3600,
+		SubscriptionTTLMinSeconds:     300,
+		SubscriptionTTLMaxSeconds:     86400,
 	}, cfg.MCP)
 
 	cfg = parseMCP(t, nil, "mcp:\n  enabled: true\n  retry_schedule: [7]\n  verification_ttl_seconds: 3600\n")
@@ -81,6 +90,10 @@ func TestMCPConfig_EnvAndYAML(t *testing.T) {
 		Enabled:                true,
 		RetrySchedule:          []int{7},
 		VerificationTTLSeconds: 3600,
+
+		SubscriptionTTLDefaultSeconds: 3600,
+		SubscriptionTTLMinSeconds:     300,
+		SubscriptionTTLMaxSeconds:     86400,
 	}, cfg.MCP)
 }
 
@@ -93,6 +106,9 @@ func TestMCPConfig_Validation(t *testing.T) {
 		{"zero schedule entry", map[string]string{"MCP_RETRY_SCHEDULE": "30,0"}, "MCP_RETRY_SCHEDULE"},
 		{"negative schedule entry", map[string]string{"MCP_RETRY_SCHEDULE": "-1"}, "MCP_RETRY_SCHEDULE"},
 		{"zero ttl", map[string]string{"MCP_VERIFICATION_TTL_SECONDS": "0"}, "MCP_VERIFICATION_TTL_SECONDS"},
+		{"zero subscription ttl", map[string]string{"MCP_SUBSCRIPTION_TTL_MIN_SECONDS": "0"}, "MCP_SUBSCRIPTION_TTL_MIN_SECONDS"},
+		{"subscription min above default", map[string]string{"MCP_SUBSCRIPTION_TTL_MIN_SECONDS": "7200"}, "MCP_SUBSCRIPTION_TTL_MAX_SECONDS"},
+		{"subscription default above max", map[string]string{"MCP_SUBSCRIPTION_TTL_MAX_SECONDS": "60", "MCP_SUBSCRIPTION_TTL_MIN_SECONDS": "10"}, "MCP_SUBSCRIPTION_TTL_MAX_SECONDS"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -114,6 +130,17 @@ func TestMCPConfig_Validation(t *testing.T) {
 			assert.NoError(t, err, "keys are not validated while MCP is off")
 		})
 	}
+}
+
+func TestMCPConfig_SubscriptionTTL(t *testing.T) {
+	assert.Nil(t, parseMCP(t, nil, "").MCPSubscriptionTTL())
+	cfg := parseMCP(t, map[string]string{
+		"MCP_ENABLED":                          "true",
+		"MCP_SUBSCRIPTION_TTL_DEFAULT_SECONDS": "5",
+		"MCP_SUBSCRIPTION_TTL_MIN_SECONDS":     "2",
+		"MCP_SUBSCRIPTION_TTL_MAX_SECONDS":     "8",
+	}, "")
+	assert.Equal(t, &mcpevents.TTLConfig{Default: 5 * time.Second, Min: 2 * time.Second, Max: 8 * time.Second}, cfg.MCPSubscriptionTTL())
 }
 
 func TestMCPConfig_RetryBackoff(t *testing.T) {
