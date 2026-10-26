@@ -246,6 +246,7 @@ func (b *ServiceBuilder) BuildAPIWorkers(baseRouter *gin.Engine) error {
 			Telemetry:           b.telemetry,
 			SubscriptionEmitter: subscriptionEmitter,
 			MCPVerifier:         routerMCPVerifier,
+			MCPCatalog:          b.cfg.MCPCatalog(),
 		},
 	)
 
