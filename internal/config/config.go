@@ -14,6 +14,7 @@ import (
 	"github.com/hookdeck/outpost/internal/opevents"
 	"github.com/hookdeck/outpost/internal/redis"
 	"github.com/hookdeck/outpost/internal/telemetry"
+	"github.com/hookdeck/outpost/internal/topicschema"
 	"github.com/hookdeck/outpost/internal/version"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
@@ -40,9 +41,11 @@ func getConfigLocations() []string {
 }
 
 type Config struct {
-	validated      bool   // tracks whether Validate() has been called successfully
-	configPath     string // stores the path of the config file used
-	retryConfigSet bool   // a retry key came from the config file or environment
+	validated      bool        // tracks whether Validate() has been called successfully
+	configPath     string      // stores the path of the config file used
+	retryConfigSet bool        // a retry key came from the config file or environment
+	osInterface    OSInterface // the OS the config was parsed with; nil means the real OS
+	mcpCatalog     *topicschema.Catalog
 
 	Service       string              `yaml:"service" env:"SERVICE" desc:"Specifies the service type to run. Valid values: 'api', 'log', 'delivery', or empty/all for singular mode (runs all services)." required:"N"`
 	LogLevel      string              `yaml:"log_level" env:"LOG_LEVEL" desc:"Defines the verbosity of application logs. Common values: 'trace', 'debug', 'info', 'warn', 'error'." required:"N"`
@@ -432,6 +435,7 @@ func (c *Config) MustGetService() ServiceType {
 // ParseWithoutValidation parses the config without validation
 func ParseWithoutValidation(flags Flags, osInterface OSInterface) (*Config, error) {
 	var config Config
+	config.osInterface = osInterface
 
 	// Initialize defaults
 	config.InitDefaults()
