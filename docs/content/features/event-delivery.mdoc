@@ -48,6 +48,8 @@ Example custom retry schedule:
 RETRY_SCHEDULE=30,60,300,900,3600
 ```
 
+Webhook destinations in Standard Webhooks mode (`DESTINATIONS_WEBHOOK_MODE=standard`) retry on the Standard Webhooks schedule instead, unless you set one of the variables above.
+
 Retry delays shorter than `LOG_BATCH_THRESHOLD_SECONDS` are raised to it, and Outpost logs a warning at startup listing them. See [Log Storage](/docs/outpost/self-hosting/configuration#log-storage) to shorten or remove this minimum.
 {% /tab %}
 {% /tabs %}

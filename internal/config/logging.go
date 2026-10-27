@@ -109,6 +109,7 @@ func (c *Config) LogConfigurationSummary() []zap.Field {
 		zap.Ints("retry_schedule", c.RetrySchedule),
 		zap.Int("retry_interval_seconds", c.RetryIntervalSeconds),
 		zap.Int("retry_max_limit", c.RetryMaxLimit),
+		zap.Bool("webhook_standard_retry", c.webhookStandardRetry()),
 		zap.Int("retry_max_concurrency", c.RetryMaxConcurrency),
 		zap.Int("retry_max_receive_count", c.RetryMaxReceiveCount),
 		zap.Int("retry_lookup_batch_size", c.RetryLookupBatchSize),

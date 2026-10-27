@@ -17,6 +17,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/hookdeck/outpost/internal/backoff"
 	"github.com/hookdeck/outpost/internal/destregistry"
 	"github.com/hookdeck/outpost/internal/destregistry/metadata"
 	"github.com/hookdeck/outpost/internal/models"
@@ -135,6 +136,11 @@ type WebhookDestination struct {
 	signingSecretTemplate    *template.Template
 	maxResponseBodyBytes     int
 
+	// retryBackoff and retryMaxLimit are the provider's own retry policy; nil
+	// retryBackoff means the global policy applies.
+	retryBackoff  backoff.Backoff
+	retryMaxLimit int
+
 	// httpClient is shared by every publisher this provider creates. Nothing
 	// in its configuration varies per destination — user agent, proxy and the
 	// transport wrapper are all provider-level — so a client per destination
@@ -170,8 +176,23 @@ type WebhookDestinationCredentials struct {
 
 var _ destregistry.Provider = (*WebhookDestination)(nil)
 
+var _ destregistry.RetryPolicyProvider = (*WebhookDestination)(nil)
+
+func (w *WebhookDestination) RetryPolicy() (backoff.Backoff, int, bool) {
+	return w.retryBackoff, w.retryMaxLimit, w.retryBackoff != nil
+}
+
 // Option is a functional option for configuring WebhookDestination
 type Option func(*WebhookDestination)
+
+// WithRetryPolicy gives webhook destinations their own retry schedule in place
+// of the global one. maxRetries is the number of retries after the first attempt.
+func WithRetryPolicy(b backoff.Backoff, maxRetries int) Option {
+	return func(w *WebhookDestination) {
+		w.retryBackoff = b
+		w.retryMaxLimit = maxRetries
+	}
+}
 
 // WithHeaderPrefix sets the prefix for webhook request headers.
 // The prefix is trimmed of whitespace. An empty string disables the prefix entirely.
