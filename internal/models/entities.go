@@ -40,7 +40,7 @@ type Destination struct {
 	CreatedAt        time.Time        `json:"created_at" redis:"created_at"`
 	UpdatedAt        time.Time        `json:"updated_at" redis:"updated_at"`
 	DisabledAt       *time.Time       `json:"disabled_at" redis:"disabled_at"`
-	// ExpiresAt is not exposed in the API. Once past, the destination receives no events.
+	// ExpiresAt is exposed in the API for mcp destinations only. Once past, the destination receives no events.
 	ExpiresAt *time.Time `json:"-" redis:"expires_at"`
 }
 
