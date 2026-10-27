@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/hookdeck/outpost/internal/apirouter"
+	"github.com/hookdeck/outpost/internal/backoff"
 	"github.com/hookdeck/outpost/internal/destregistry"
 	"github.com/hookdeck/outpost/internal/destregistry/metadata"
 	"github.com/hookdeck/outpost/internal/logging"
@@ -313,4 +314,8 @@ func (r *stubRegistry) RetrieveProviderMetadata(string) (*metadata.ProviderMetad
 }
 func (r *stubRegistry) ListProviderMetadata() []*metadata.ProviderMetadata {
 	return []*metadata.ProviderMetadata{}
+}
+
+func (r *stubRegistry) RetryPolicy(string) (backoff.Backoff, int, bool) {
+	return nil, 0, false
 }
