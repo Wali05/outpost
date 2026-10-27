@@ -40,6 +40,11 @@ type HTTPClientConfig struct {
 	// HTTP_PROXY/HTTPS_PROXY. Through a forward proxy only the target URL is
 	// checked, so the proxy must refuse private addresses itself.
 	Guard *netguard.Guard
+
+	// MaxResponseHeaderBytes caps response headers. Zero keeps Go's default.
+	MaxResponseHeaderBytes int64
+	// DisableCompression stops the transport from asking for gzip.
+	DisableCompression bool
 }
 
 func (c HTTPClientConfig) needsTransport() bool {
@@ -47,6 +52,8 @@ func (c HTTPClientConfig) needsTransport() bool {
 		c.UserAgent != nil ||
 		c.OnConnection != nil ||
 		c.Guard != nil ||
+		c.MaxResponseHeaderBytes > 0 ||
+		c.DisableCompression ||
 		c.Pool.MaxIdleConns > 0 ||
 		c.Pool.MaxIdleConnsPerHost > 0
 }
@@ -71,6 +78,11 @@ func NewHTTPClient(config HTTPClientConfig) (*http.Client, error) {
 	if config.Pool.MaxIdleConnsPerHost > 0 {
 		transport.MaxIdleConnsPerHost = config.Pool.MaxIdleConnsPerHost
 	}
+
+	if config.MaxResponseHeaderBytes > 0 {
+		transport.MaxResponseHeaderBytes = config.MaxResponseHeaderBytes
+	}
+	transport.DisableCompression = config.DisableCompression
 
 	if config.Guard != nil && len(config.Proxy) == 0 {
 		transport.Proxy = nil
