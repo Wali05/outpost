@@ -116,6 +116,9 @@ func (c *Config) GetRetryPollBackoff() time.Duration {
 	if c.webhookStandardRetry() {
 		shortest = min(shortest, max(destwebhook.StandardRetrySchedule[0], time.Duration(c.LogBatchThresholdSeconds)*time.Second))
 	}
+	if c.MCP.Enabled && len(c.MCP.RetrySchedule) > 0 {
+		shortest = min(shortest, max(time.Duration(slices.Min(c.MCP.RetrySchedule))*time.Second, time.Duration(c.LogBatchThresholdSeconds)*time.Second))
+	}
 	if shortest > 0 && shortest < defaultRetryPollBackoff {
 		return shortest
 	}

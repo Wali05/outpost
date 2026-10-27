@@ -121,6 +121,9 @@ type Config struct {
 	// ID Generation
 	IDGen IDGenConfig `yaml:"idgen"`
 
+	// MCP Events (experimental)
+	MCP MCPConfig `yaml:"mcp"`
+
 	// Retention
 	ClickHouseLogRetentionTTLDays int `yaml:"clickhouse_log_retention_ttl_days" env:"CLICKHOUSE_LOG_RETENTION_TTL_DAYS" desc:"Days to retain logs in ClickHouse. 0 = unlimited." required:"N"`
 }
@@ -143,6 +146,7 @@ var (
 	ErrInvalidPublishMaxRedeliveries  = errors.New("config validation error: publish_max_redeliveries must be >= -1")
 	ErrInvalidSupervisorLimit         = errors.New("config validation error: invalid supervisor limit")
 	ErrInvalidSupervisorWorker        = errors.New("config validation error: invalid supervisor restart worker")
+	ErrInvalidMCPConfig               = errors.New("config validation error: invalid mcp config")
 )
 
 func (c *Config) InitDefaults() {
@@ -253,6 +257,8 @@ func (c *Config) InitDefaults() {
 	}
 
 	c.ClickHouseLogRetentionTTLDays = 0 // Unlimited by default
+
+	c.MCP.initDefaults()
 }
 
 func (c *Config) parseConfigFile(flagPath string, osInterface OSInterface) error {
