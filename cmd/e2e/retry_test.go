@@ -2,6 +2,9 @@ package e2e_test
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"time"
 
 	"github.com/hookdeck/outpost/internal/idgen"
 )
@@ -148,4 +151,34 @@ func (s *basicSuite) TestRetry_ManualRetryOnDisabledDestinationRejected() {
 	// Retry should be rejected
 	status := s.retryEvent(eventID, dest.ID)
 	s.Equal(http.StatusBadRequest, status)
+}
+
+func (s *basicSuite) TestRetry_Webhook410NotRetried() {
+	var hits atomic.Int32
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusGone)
+	}))
+	s.T().Cleanup(receiver.Close)
+
+	tenant := s.createTenant()
+	dest := s.createWebhookDestination(tenant.ID, "*", withURL(receiver.URL))
+
+	eventID := idgen.Event()
+	s.publish(tenant.ID, "user.created", map[string]any{"test": "gone"}, withEventID(eventID), withRetry())
+
+	attempts := s.waitForNewAttempts(tenant.ID, 1)
+	s.Equal("410", attempts[0]["code"])
+
+	// Automatic retries would land within a few seconds (interval 1s).
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		s.Require().EqualValues(1, hits.Load(), "410 must not be retried automatically")
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// A manual retry is still allowed.
+	s.Equal(http.StatusAccepted, s.retryEvent(eventID, dest.ID))
+	s.waitForNewAttempts(tenant.ID, 2)
+	s.EqualValues(2, hits.Load())
 }
