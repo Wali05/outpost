@@ -15,9 +15,12 @@ import (
 	"github.com/hookdeck/outpost/internal/pagination"
 	"github.com/hookdeck/outpost/internal/redis"
 	"github.com/hookdeck/outpost/internal/tenantstore/driver"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 const defaultMaxDestinationsPerTenant = 20
+
+const deletedRecordTTL = 7 * 24 * time.Hour
 
 const (
 	defaultListTenantLimit = 20
@@ -256,12 +259,12 @@ func (s *store) DeleteTenant(ctx context.Context, tenantID string) error {
 		for _, destinationID := range destinationIDs {
 			destKey := s.redisDestinationID(destinationID, tenantID)
 			pipe.HSet(ctx, destKey, "deleted_at", nowUnixMilli)
-			pipe.Expire(ctx, destKey, 7*24*time.Hour)
+			pipe.Expire(ctx, destKey, deletedRecordTTL)
 		}
 
 		pipe.Del(ctx, s.redisTenantDestinationSummaryKey(tenantID))
 		pipe.HSet(ctx, s.redisTenantID(tenantID), "deleted_at", nowUnixMilli)
-		pipe.Expire(ctx, s.redisTenantID(tenantID), 7*24*time.Hour)
+		pipe.Expire(ctx, s.redisTenantID(tenantID), deletedRecordTTL)
 
 		return nil
 	})
@@ -527,15 +530,60 @@ func (s *store) CreateDestination(ctx context.Context, destination models.Destin
 		}
 	}
 
+	// Check max destinations; expired destinations are deleted to free a slot.
 	count, err := s.redisClient.HLen(ctx, s.redisTenantDestinationSummaryKey(destination.TenantID)).Result()
 	if err != nil {
 		return err
 	}
 	if count >= int64(s.maxDestinationsPerTenant) {
-		return driver.ErrMaxDestinationsPerTenantReached
+		if err := s.deleteExpiredDestinations(ctx, destination.TenantID); err != nil {
+			return err
+		}
+		count, err = s.redisClient.HLen(ctx, s.redisTenantDestinationSummaryKey(destination.TenantID)).Result()
+		if err != nil {
+			return err
+		}
+		if count >= int64(s.maxDestinationsPerTenant) {
+			return driver.ErrMaxDestinationsPerTenantReached
+		}
 	}
 
 	return s.UpsertDestination(ctx, destination)
+}
+
+// Re-reads expires_at so a destination extended since the summary was read is kept.
+var deleteIfExpiredScript = goredis.NewScript(`
+local expires = redis.call('HGET', KEYS[1], 'expires_at')
+if not expires or redis.call('HEXISTS', KEYS[1], 'deleted_at') == 1 then
+  return 0
+end
+if tonumber(expires) > tonumber(ARGV[1]) then
+  return 0
+end
+redis.call('HDEL', KEYS[2], ARGV[2])
+redis.call('HSET', KEYS[1], 'deleted_at', ARGV[1])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+return 1
+`)
+
+func (s *store) deleteExpiredDestinations(ctx context.Context, tenantID string) error {
+	summaries, err := s.listDestinationSummaryByTenant(ctx, tenantID, nil)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for _, ds := range summaries {
+		if !ds.expired(now) {
+			continue
+		}
+		err := deleteIfExpiredScript.Run(ctx, s.redisClient,
+			[]string{s.redisDestinationID(ds.ID, tenantID), s.redisTenantDestinationSummaryKey(tenantID)},
+			now.UnixMilli(), ds.ID, int64(deletedRecordTTL.Seconds())).Err()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *store) UpsertDestination(ctx context.Context, destination models.Destination) error {
@@ -591,6 +639,12 @@ func (s *store) UpsertDestination(ctx context.Context, destination models.Destin
 			pipe.HDel(ctx, key, "disabled_at")
 		}
 
+		if destination.ExpiresAt != nil {
+			pipe.HSet(ctx, key, "expires_at", destination.ExpiresAt.UnixMilli())
+		} else {
+			pipe.HDel(ctx, key, "expires_at")
+		}
+
 		if destination.DeliveryMetadata != nil {
 			pipe.HSet(ctx, key, "delivery_metadata", encryptedDeliveryMetadata)
 		} else {
@@ -631,7 +685,7 @@ func (s *store) DeleteDestination(ctx context.Context, tenantID, destinationID s
 
 		pipe.HDel(ctx, summaryKey, destinationID)
 		pipe.HSet(ctx, key, "deleted_at", nowUnixMilli)
-		pipe.Expire(ctx, key, 7*24*time.Hour)
+		pipe.Expire(ctx, key, deletedRecordTTL)
 
 		return nil
 	})
@@ -646,9 +700,10 @@ func (s *store) MatchEvent(ctx context.Context, event models.Event, allowWildcar
 	}
 
 	var matched []string
+	now := time.Now()
 
 	for _, ds := range destinationSummaryList {
-		if ds.Disabled {
+		if ds.Disabled || ds.expired(now) {
 			continue
 		}
 		if event.Topic != "" && !ds.Topics.MatchTopic(event.Topic, allowWildcards) {
