@@ -120,3 +120,33 @@ func TestPublish_NonRetryableStatuses(t *testing.T) {
 		}
 	}
 }
+
+func TestExecuteHTTPRequest_RedirectIsFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{301, 302, 303, 307, 308} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Location", "/elsewhere")
+				w.WriteHeader(code)
+			}))
+			defer server.Close()
+
+			req, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader("{}"))
+			require.NoError(t, err)
+
+			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			}}
+			result := destwebhook.ExecuteHTTPRequest(context.Background(), client, req, "webhook", 0)
+
+			require.NotNil(t, result.Delivery)
+			assert.Equal(t, "failed", result.Delivery.Status)
+			assert.Equal(t, fmt.Sprintf("%d", code), result.Delivery.Code)
+			assert.Equal(t, code, result.Delivery.Response["status"])
+			assert.Error(t, result.Error)
+		})
+	}
+}
