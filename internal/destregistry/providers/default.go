@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/hookdeck/outpost/internal/backoff"
 	"github.com/hookdeck/outpost/internal/destregistry"
 	"github.com/hookdeck/outpost/internal/destregistry/providers/destawseventbridge"
 	"github.com/hookdeck/outpost/internal/destregistry/providers/destawskinesis"
@@ -50,6 +51,10 @@ type DestWebhookConfig struct {
 	SignatureSecretEncoding  string
 	SignatureSecretPrefix    string
 	Compat                   *destwebhook.CompatSignatureConfig
+	// RetryBackoff and RetryMaxLimit are the webhook's own retry policy; a nil
+	// RetryBackoff leaves the global policy in place.
+	RetryBackoff  backoff.Backoff
+	RetryMaxLimit int
 }
 
 type DestAWSKinesisConfig struct {
@@ -143,6 +148,9 @@ func RegisterDefault(registry destregistry.Registry, opts RegisterDefaultDestina
 		if opts.Webhook.MetadataName != "" {
 			webhookOpts = append(webhookOpts, destwebhook.WithMetadataName(opts.Webhook.MetadataName))
 		}
+	}
+	if opts.Webhook != nil && opts.Webhook.RetryBackoff != nil {
+		webhookOpts = append(webhookOpts, destwebhook.WithRetryPolicy(opts.Webhook.RetryBackoff, opts.Webhook.RetryMaxLimit))
 	}
 	webhook, err := destwebhook.New(loader, basePublisherOpts, webhookOpts...)
 	if err != nil {

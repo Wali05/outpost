@@ -265,6 +265,10 @@ func (s *basicSuite) createWebhookDestination(tenantID, topic string, opts ...de
 	}
 
 	destID := idgen.Destination()
+	destURL := fmt.Sprintf("%s/webhook/%s", s.mockServerURL(), destID)
+	if o.url != "" {
+		destURL = o.url
+	}
 
 	// Register on mock server
 	mockBody := map[string]any{
@@ -279,8 +283,10 @@ func (s *basicSuite) createWebhookDestination(tenantID, topic string, opts ...de
 			"secret": o.secret,
 		}
 	}
-	status := s.doJSONRaw(http.MethodPut, s.mockServerURL()+"/destinations", mockBody, nil)
-	s.Require().Equal(http.StatusOK, status, "failed to register mock destination %s", destID)
+	if o.url == "" {
+		status := s.doJSONRaw(http.MethodPut, s.mockServerURL()+"/destinations", mockBody, nil)
+		s.Require().Equal(http.StatusOK, status, "failed to register mock destination %s", destID)
+	}
 
 	// Create on outpost
 	outpostBody := map[string]any{
@@ -288,7 +294,7 @@ func (s *basicSuite) createWebhookDestination(tenantID, topic string, opts ...de
 		"type":   "webhook",
 		"topics": []string{topic},
 		"config": map[string]any{
-			"url": fmt.Sprintf("%s/webhook/%s", s.mockServerURL(), destID),
+			"url": destURL,
 		},
 	}
 	if o.secret != "" {
@@ -301,7 +307,7 @@ func (s *basicSuite) createWebhookDestination(tenantID, topic string, opts ...de
 	}
 
 	var resp destinationResponse
-	status = s.doJSON(http.MethodPost, s.apiURL("/tenants/"+tenantID+"/destinations"), outpostBody, &resp)
+	status := s.doJSON(http.MethodPost, s.apiURL("/tenants/"+tenantID+"/destinations"), outpostBody, &resp)
 	s.Require().Equal(http.StatusCreated, status, "failed to create destination %s", destID)
 
 	return &webhookDestination{
@@ -519,6 +525,13 @@ type destOpt func(*destOpts)
 type destOpts struct {
 	secret string
 	filter map[string]any
+	url    string
+}
+
+// withURL points the destination at url instead of the mock server; nothing is
+// registered on the mock server.
+func withURL(url string) destOpt {
+	return func(o *destOpts) { o.url = url }
 }
 
 func withSecret(s string) destOpt {

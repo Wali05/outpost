@@ -326,7 +326,7 @@ Header names are matched case-insensitively. Outpost rejects a configuration whe
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DESTINATIONS_WEBHOOK_MODE` | `default` | Set to `standard` for Standard Webhooks compliance |
+| `DESTINATIONS_WEBHOOK_MODE` | `default` | Set to `standard` for Standard Webhooks compliance. Standard mode also retries on the Standard Webhooks schedule (5s, 5m, 30m, 2h, 5h, 10h, 14h, 20h, 24h) unless `RETRY_SCHEDULE`, `RETRY_INTERVAL_SECONDS` or `MAX_RETRY_LIMIT` is set. |
 | `DESTINATIONS_WEBHOOK_SIGNATURE_ALGORITHM` | `hmac-sha256` | Signature algorithm. Only applies to `default` mode. |
 | `DESTINATIONS_WEBHOOK_SIGNATURE_ENCODING` | `hex` | Encoding: `hex` or `base64`. Only applies to `default` mode. |
 | `DESTINATIONS_WEBHOOK_SIGNATURE_CONTENT_TEMPLATE` | `{{.Body}}` | Template for signed content. Only applies to `default` mode. |

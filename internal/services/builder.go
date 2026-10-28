@@ -354,6 +354,7 @@ func (b *ServiceBuilder) BuildDeliveryWorker(baseRouter *gin.Engine) error {
 		retryBackoff,
 		retryMaxLimit,
 		deliveryIdempotence,
+		deliverymq.WithRetryPolicyResolver(svc.destRegistry),
 	)
 
 	svc.router = baseRouter

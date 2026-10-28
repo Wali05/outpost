@@ -7,7 +7,7 @@ Outpost tracks each event, its status, and all delivery attempts. Delivery opera
 
 ## Automatic Retries
 
-When a delivery attempt fails — because the destination is unavailable, misconfigured, or returns a non-2xx HTTP status — Outpost automatically retries the event.
+When a delivery attempt fails — because the destination is unavailable, misconfigured, or returns a non-2xx HTTP status — Outpost automatically retries the event. Webhook responses `410 Gone` and `413 Content Too Large` are not retried automatically; they can still be retried manually.
 
 By default, retries use an **exponential backoff** algorithm with a base of `2`, or you can define a custom retry schedule.
 
@@ -47,6 +47,8 @@ Example custom retry schedule:
 ```
 RETRY_SCHEDULE=30,60,300,900,3600
 ```
+
+Webhook destinations in Standard Webhooks mode (`DESTINATIONS_WEBHOOK_MODE=standard`) retry on the Standard Webhooks schedule instead, unless you set one of the variables above.
 
 Retry delays shorter than `LOG_BATCH_THRESHOLD_SECONDS` are raised to it, and Outpost logs a warning at startup listing them. See [Log Storage](/docs/outpost/self-hosting/configuration#log-storage) to shorten or remove this minimum.
 {% /tab %}

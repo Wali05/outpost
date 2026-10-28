@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hookdeck/outpost/internal/backoff"
 	destregistrydefault "github.com/hookdeck/outpost/internal/destregistry/providers"
 	"github.com/hookdeck/outpost/internal/destregistry/providers/destwebhook"
 	"github.com/hookdeck/outpost/internal/version"
@@ -26,6 +27,10 @@ func (c *DestinationsConfig) ToConfig(cfg *Config) destregistrydefault.RegisterD
 	}
 
 	webhook := c.Webhook.toConfig()
+	if cfg.webhookStandardRetry() {
+		webhook.RetryBackoff = cfg.floorBackoff(&backoff.ScheduledBackoff{Schedule: destwebhook.StandardRetrySchedule})
+		webhook.RetryMaxLimit = len(destwebhook.StandardRetrySchedule)
+	}
 	if strings.TrimSpace(webhook.ProxyURL) == "" {
 		webhook.ProxyURL = c.ProxyURL
 	}
@@ -62,7 +67,7 @@ type DestinationWebhookConfig struct {
 	// ProxyURL may contain authentication credentials (e.g., http://user:pass@proxy:8080)
 	// and should be treated as sensitive.
 	// TODO: Implement sensitive value handling - https://github.com/hookdeck/outpost/issues/480
-	Mode         string `yaml:"mode" env:"DESTINATIONS_WEBHOOK_MODE" desc:"Webhook mode: 'default' or 'standard'. 'standard' uses the Standard Webhooks format and ignores the options marked default-only. Defaults to 'default'." required:"N"`
+	Mode         string `yaml:"mode" env:"DESTINATIONS_WEBHOOK_MODE" desc:"Webhook mode: 'default' or 'standard'. 'standard' uses the Standard Webhooks format and ignores the options marked default-only. 'standard' also retries on the Standard Webhooks schedule (5s, 5m, 30m, 2h, 5h, 10h, 14h, 20h, 24h) unless RETRY_SCHEDULE, RETRY_INTERVAL_SECONDS or MAX_RETRY_LIMIT is set. Defaults to 'default'." required:"N"`
 	ProxyURL     string `yaml:"proxy_url" env:"DESTINATIONS_WEBHOOK_PROXY_URL" desc:"Deprecated: use DESTINATIONS_PROXY_URL. Forward proxy for outgoing webhook requests (HTTP or HTTPS, basic auth supported). Multiple whitespace-separated URLs are tunneled in order. When set, it overrides DESTINATIONS_PROXY_URL for webhooks." required:"N"`
 	HeaderPrefix string `yaml:"header_prefix" env:"DESTINATIONS_WEBHOOK_HEADER_PREFIX" desc:"Prefix for metadata headers added to webhook requests. Defaults to 'x-outpost-' in 'default' mode and 'webhook-' in 'standard' mode. Set to whitespace (e.g. ' ') to disable the prefix entirely." required:"N"`
 

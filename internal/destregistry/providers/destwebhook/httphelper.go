@@ -104,13 +104,16 @@ func ExecuteHTTPRequest(ctx context.Context, client *http.Client, req *http.Requ
 
 		return &HTTPRequestResult{
 			Delivery: delivery,
-			Error: destregistry.NewErrDestinationPublishAttempt(
-				fmt.Errorf("request failed with status %d: %s", resp.StatusCode, bodyStr),
-				provider,
-				map[string]interface{}{
+			Error: &destregistry.ErrDestinationPublishAttempt{
+				Err:      fmt.Errorf("request failed with status %d: %s", resp.StatusCode, bodyStr),
+				Provider: provider,
+				Data: map[string]interface{}{
 					"status": resp.StatusCode,
 					"body":   bodyStr,
-				}),
+				},
+				// 410 (endpoint gone) and 413 (payload too large) fail the same way on every retry.
+				NonRetryable: resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusRequestEntityTooLarge,
+			},
 			Response: resp,
 		}
 	}

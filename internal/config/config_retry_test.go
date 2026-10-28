@@ -1,10 +1,16 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/hookdeck/outpost/internal/config"
+	"github.com/hookdeck/outpost/internal/destregistry"
+	destregistrydefault "github.com/hookdeck/outpost/internal/destregistry/providers"
+	"github.com/hookdeck/outpost/internal/destregistry/providers/destwebhook"
+	"github.com/hookdeck/outpost/internal/util/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -349,4 +355,96 @@ func TestRetryBackoffWaitsAtLeastOneLogFlush(t *testing.T) {
 	cfg = parseConfig(t, map[string]string{"RETRY_SCHEDULE": "1", "LOG_BATCH_THRESHOLD_SECONDS": "2"}, "")
 	b, _ = cfg.GetRetryBackoff()
 	assert.Equal(t, 2*time.Second, b.Duration(0))
+}
+
+func TestStandardModeRetryPolicy(t *testing.T) {
+	t.Parallel()
+	standard := map[string]string{"DESTINATIONS_WEBHOOK_MODE": "standard"}
+	with := func(extra map[string]string) map[string]string {
+		env := map[string]string{}
+		for k, v := range standard {
+			env[k] = v
+		}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return env
+	}
+
+	tests := []struct {
+		name         string
+		env          map[string]string
+		yaml         string
+		wantStandard bool
+	}{
+		{name: "standard, nothing configured", env: standard, wantStandard: true},
+		{name: "default mode", env: nil, wantStandard: false},
+		{name: "empty values count as unset", env: with(map[string]string{"MAX_RETRY_LIMIT": ""}), wantStandard: true},
+		{name: "RETRY_SCHEDULE", env: with(map[string]string{"RETRY_SCHEDULE": "5,60"})},
+		{name: "MAX_RETRY_LIMIT equal to default", env: with(map[string]string{"MAX_RETRY_LIMIT": "10"})},
+		{name: "RETRY_INTERVAL_SECONDS equal to default", env: with(map[string]string{"RETRY_INTERVAL_SECONDS": "30"})},
+		{name: "yaml retry_max_limit equal to default", env: standard, yaml: "retry_max_limit: 10\n"},
+		{name: "yaml retry_schedule", env: standard, yaml: "retry_schedule: [5, 60]\n"},
+		{name: "yaml empty retry_schedule counts as unset", env: standard, yaml: "retry_schedule: []\n", wantStandard: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := parseConfig(t, tt.env, tt.yaml)
+			webhook := cfg.Destinations.ToConfig(cfg).Webhook
+
+			if !tt.wantStandard {
+				assert.Nil(t, webhook.RetryBackoff)
+				assert.Zero(t, webhook.RetryMaxLimit)
+				return
+			}
+			require.NotNil(t, webhook.RetryBackoff)
+			assert.Equal(t, len(destwebhook.StandardRetrySchedule), webhook.RetryMaxLimit)
+			floor := time.Duration(cfg.LogBatchThresholdSeconds) * time.Second
+			assert.Equal(t, max(destwebhook.StandardRetrySchedule[0], floor), webhook.RetryBackoff.Duration(0))
+			assert.Equal(t, 24*time.Hour, webhook.RetryBackoff.Duration(8))
+		})
+	}
+}
+
+func TestStandardModeRetryPollBackoff(t *testing.T) {
+	t.Parallel()
+	standard := map[string]string{"DESTINATIONS_WEBHOOK_MODE": "standard"}
+
+	assert.Equal(t, 10*time.Second, parseConfig(t, standard, "").GetRetryPollBackoff(), "first delay is raised to the log flush floor")
+	assert.Equal(t, 30*time.Second, parseConfig(t, nil, "").GetRetryPollBackoff())
+	assert.Equal(t, 20*time.Second, parseConfig(t, map[string]string{
+		"DESTINATIONS_WEBHOOK_MODE": "standard",
+		"RETRY_SCHEDULE":            "20,60",
+	}, "").GetRetryPollBackoff())
+}
+
+func TestStandardModeRetryPolicy_DotEnvFile(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), ".env")
+	content := []byte("MAX_RETRY_LIMIT=10\n")
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+	m := &mockOS{
+		files:   map[string][]byte{path: content},
+		envVars: map[string]string{"CONFIG": path, "DESTINATIONS_WEBHOOK_MODE": "standard"},
+	}
+	cfg, err := config.ParseWithoutValidation(config.Flags{}, m)
+	require.NoError(t, err)
+
+	assert.Nil(t, cfg.Destinations.ToConfig(cfg).Webhook.RetryBackoff)
+}
+
+func TestStandardModeRetryPolicy_ReachesRegistry(t *testing.T) {
+	t.Parallel()
+	cfg := parseConfig(t, map[string]string{"DESTINATIONS_WEBHOOK_MODE": "standard"}, "")
+	registry := destregistry.NewRegistry(&destregistry.Config{}, testutil.CreateTestLogger(t))
+	require.NoError(t, destregistrydefault.RegisterDefault(registry, cfg.Destinations.ToConfig(cfg)))
+
+	b, maxRetries, ok := registry.RetryPolicy("webhook")
+
+	require.True(t, ok)
+	assert.Equal(t, 9, maxRetries)
+	assert.Equal(t, 24*time.Hour, b.Duration(8))
+	_, _, ok = registry.RetryPolicy("rabbitmq")
+	assert.False(t, ok)
 }
